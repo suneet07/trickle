@@ -1,0 +1,6 @@
+# Used by the optional `https` compose profile. Set DOMAIN in .env to the
+# hostname pointing at this server; Caddy obtains and renews the certificate.
+{$DOMAIN} {
+	encode zstd gzip
+	reverse_proxy app:8080
+}

@@ -1,0 +1,27 @@
+{
+  "name": "@trickle/worker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@trickle/core": "workspace:*",
+    "@trickle/db": "workspace:*",
+    "@trickle/shared": "workspace:*",
+    "bullmq": "^5.12.0",
+    "googleapis": "^140.0.1",
+    "ioredis": "^5.4.1",
+    "luxon": "^3.5.0"
+  },
+  "devDependencies": {
+    "@types/luxon": "^3.4.2",
+    "@types/node": "^22.1.0",
+    "tsx": "^4.16.2",
+    "typescript": "^5.5.4"
+  }
+}

@@ -1,0 +1,19 @@
+# Never copy these into the build context / image
+node_modules
+**/node_modules
+.git
+.github
+dist
+**/dist
+**/.prisma
+.env
+.env.*
+!.env.example
+*.log
+coverage
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+docs
+*.md

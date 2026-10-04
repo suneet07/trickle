@@ -1,0 +1,126 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Design tokens. Colors are RGB triplets so Tailwind's opacity modifiers work
+ * (e.g. bg-accent/10). Light is the default; dark applies from the OS setting
+ * unless the user picked a theme explicitly (data-theme on <html>).
+ */
+:root {
+  --bg: 248 250 252;
+  --surface: 255 255 255;
+  --subtle: 241 245 249;
+  --line: 226 232 240;
+  --fg: 15 23 42;
+  --muted: 100 116 139;
+  --accent: 13 148 136;
+  --accent-fg: 255 255 255;
+  --ok: 22 163 74;
+  --warn: 202 138 4;
+  --bad: 220 38 38;
+  --info: 37 99 235;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: 11 15 20;
+    --surface: 18 23 30;
+    --subtle: 26 32 41;
+    --line: 39 47 58;
+    --fg: 226 232 240;
+    --muted: 140 152 168;
+    --accent: 45 212 191;
+    --accent-fg: 4 47 46;
+    --ok: 74 222 128;
+    --warn: 250 204 21;
+    --bad: 248 113 113;
+    --info: 96 165 250;
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg: 11 15 20;
+  --surface: 18 23 30;
+  --subtle: 26 32 41;
+  --line: 39 47 58;
+  --fg: 226 232 240;
+  --muted: 140 152 168;
+  --accent: 45 212 191;
+  --accent-fg: 4 47 46;
+  --ok: 74 222 128;
+  --warn: 250 204 21;
+  --bad: 248 113 113;
+  --info: 96 165 250;
+  color-scheme: dark;
+}
+
+@layer base {
+  html,
+  body {
+    @apply bg-bg text-fg antialiased;
+    font-family: "Inter", system-ui, sans-serif;
+    font-feature-settings: "cv11", "ss01";
+  }
+  body {
+    min-height: 100vh;
+  }
+  :focus-visible {
+    @apply outline-none ring-2 ring-accent/60 ring-offset-0;
+  }
+}
+
+@layer components {
+  /* Form controls — one look everywhere. */
+  .input {
+    @apply block w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-fg
+      placeholder:text-muted/70 shadow-sm transition
+      focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20
+      disabled:cursor-not-allowed disabled:opacity-60;
+  }
+  select.input {
+    @apply pr-8;
+  }
+  textarea.input {
+    @apply leading-relaxed;
+    resize: vertical;
+  }
+  .checkbox {
+    @apply h-4 w-4 rounded border-line text-accent accent-[rgb(var(--accent))];
+  }
+  .label {
+    @apply mb-1.5 block text-xs font-medium text-muted;
+  }
+
+  /* Tables */
+  .table {
+    @apply w-full text-left text-sm;
+  }
+  .table thead th {
+    @apply whitespace-nowrap border-b border-line bg-subtle/60 px-4 py-2.5 text-xs font-medium uppercase tracking-wide text-muted;
+  }
+  .table tbody td {
+    @apply border-b border-line px-4 py-3 align-middle;
+  }
+  .table tbody tr:last-child td {
+    @apply border-b-0;
+  }
+  .table tbody tr:hover td {
+    @apply bg-subtle/40;
+  }
+
+  .link {
+    @apply font-medium text-accent hover:underline underline-offset-2;
+  }
+  .kbd {
+    @apply rounded border border-line bg-subtle px-1.5 py-0.5 font-mono text-[11px] text-fg;
+  }
+}
+
+/* Thin, theme-aware scrollbars. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(var(--line)) transparent;
+}

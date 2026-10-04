@@ -1,0 +1,45 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+
+# Generated Prisma client
+**/.prisma/
+**/generated/prisma/
+
+# Environment / secrets (.env.example stays tracked)
+.env
+.env.local
+.env.*.local
+*.pem
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Test / coverage
+coverage/
+.vitest/
+
+# Caches
+.cache/
+.turbo/
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Scratch
+*.tmp
+*.bak
+
+# Local compose overrides
+docker-compose.override.yml

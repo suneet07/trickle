@@ -1,0 +1,329 @@
+// Trickle data model.
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum AccountStatus {
+  active
+  paused
+  quarantined
+}
+
+enum LeadStatus {
+  pending
+  contacted
+  followup
+  replied
+  bounced
+  unsubscribed
+  do_not_contact
+}
+
+enum CampaignStatus {
+  draft
+  scheduled
+  running
+  paused
+  done
+}
+
+enum MessageDirection {
+  out
+  in
+}
+
+enum MessageStatus {
+  planned
+  queued
+  sent
+  bounced
+  failed
+  canceled
+}
+
+enum Variant {
+  A
+  B
+}
+
+enum SuppressionReason {
+  unsub
+  bounce
+  complaint
+  manual
+}
+
+model Account {
+  id                 String        @id @default(cuid())
+  email              String        @unique
+  displayName        String?
+  // AES-256-GCM encrypted Gmail OAuth refresh token (packages/db crypto helpers).
+  oauthRefreshEnc    String?
+  oauthAccessEnc     String?
+  oauthExpiry        DateTime?
+  oauthScope         String?
+  dailyCapCold       Int           @default(25) // capColdBase[a]
+  // Daily warmup volume this inbox sends (built-in or an external warmup
+  // service). Reserved out of the per-inbox total before cold mail is budgeted.
+  warmupVolumeManual Int           @default(15)
+  // Inbox already warmed elsewhere -> skip the new-inbox ramp.
+  warmedUp           Boolean       @default(false)
+  // Built-in warmup automation: when enabled, the warmup job sends peer-to-peer
+  // warmup emails and ramps warmupSentTotal toward warmupTarget.
+  warmupEnabled      Boolean       @default(false)
+  warmupTarget       Int           @default(200)
+  warmupSentTotal    Int           @default(0)
+  // Optional plain-text signature appended to every send from this inbox.
+  signature          String?
+  // Default "send mail as" alias for this mailbox. When set, outbound campaign
+  // mail uses this address in the From header instead of `email`. It MUST be a
+  // verified "Send mail as" alias on the Gmail account or sends will fail.
+  sendAsEmail        String?
+  // Optional display name shown with the alias, e.g. "Alex from Acme".
+  sendAsName         String?
+  healthScore        Int           @default(100)
+  status             AccountStatus @default(active)
+  // Per-inbox send-window override: JSON array of { startMin, endMin, weight }
+  // in recipient-local minutes-from-midnight. null = use campaign/default windows.
+  sendWindowsJson    Json?
+  // Per-inbox ceiling on sends per clock-hour. null = no hourly ceiling.
+  hourlyCap          Int?
+  // Per-inbox hard minimum gap (minutes) between two sends. null = engine default.
+  minGapMinutes      Int?
+  createdAt          DateTime      @default(now())
+  // When cold sending should resume (set by circuit breakers).
+  pausedUntil        DateTime?
+  gmailHistoryId     String? // last processed Gmail history id (reply polling)
+
+  leads    Lead[]
+  messages Message[]
+  sendLogs SendLog[]
+
+  @@index([status])
+}
+
+model Region {
+  id        String     @id @default(cuid())
+  name      String     @unique // e.g. "Pacific Northwest"
+  states    String[] // state/province codes; imports auto-assign by these
+  timezone  String // IANA tz, e.g. America/Los_Angeles
+  createdAt DateTime   @default(now())
+  leads     Lead[]
+  campaigns Campaign[]
+}
+
+model Lead {
+  id           String     @id @default(cuid())
+  name         String?
+  email        String
+  company      String?
+  title        String?
+  city         String?
+  state        String?
+  zip          String?
+  timezone     String     @default("America/Los_Angeles")
+  source       String?
+  status       LeadStatus @default(pending)
+  notes        String?
+  // Any extra CSV/XLSX columns from import, usable as {{merge}} variables.
+  customFields Json       @default("{}")
+  // Pause all sends to this lead until this time (manual snooze).
+  snoozeUntil  DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  regionId  String?
+  region    Region?  @relation(fields: [regionId], references: [id])
+  accountId String? // lead keeps its assigned sending account
+  account   Account? @relation(fields: [accountId], references: [id])
+
+  messages Message[]
+
+  // Dedupe leads by email address globally.
+  @@unique([email])
+  @@index([status])
+  @@index([regionId])
+  @@index([accountId])
+}
+
+model Campaign {
+  id                     String         @id @default(cuid())
+  name                   String
+  status                 CampaignStatus @default(draft)
+  subjectTemplate        String
+  bodyTemplate           String
+  // Optional A/B variant of subject+body.
+  subjectVariantB        String?
+  bodyVariantB           String?
+  abEnabled              Boolean        @default(false)
+  // JSON array of follow-up steps: [{ dayOffset, subjectTemplate, bodyTemplate }]
+  followUpsJson          Json           @default("[]")
+  // Optional per-campaign send-window override (JSON) and weekday weights.
+  sendWindowsJson        Json?
+  // Filters used at launch (status, city, etc.) stored for audit.
+  filtersJson            Json           @default("{}")
+  // Placement-test gate: user must confirm before launch.
+  placementTestConfirmed Boolean        @default(false)
+  // Optional scheduled start: campaign flips scheduled -> running at this time.
+  scheduledStartAt       DateTime?
+  // Archived campaigns are hidden from the default list but retained.
+  archivedAt             DateTime?
+  // Body templates are HTML rather than plain text.
+  isHtml                 Boolean        @default(false)
+  // Open-pixel / click-redirect tracking (off by default; hurts deliverability).
+  trackOpens             Boolean        @default(false)
+  trackClicks            Boolean        @default(false)
+  // Add List-Unsubscribe / one-click unsub headers (off = looks person-to-person).
+  unsubHeader            Boolean        @default(false)
+  // null = default sig-block footer; "" = no footer; text = custom footer.
+  footerOverride         String?
+  createdAt              DateTime       @default(now())
+  updatedAt              DateTime       @updatedAt
+
+  regionId       String?
+  region         Region?         @relation(fields: [regionId], references: [id])
+  messages       Message[]
+  placementTests PlacementTest[]
+
+  @@index([status])
+}
+
+// Built-in inbox placement test: send the rendered campaign email from each
+// active inbox to the other connected inboxes (seeds) and record which folder
+// Gmail filed it in (inbox / spam / promotions). Observation only — no rescue.
+model PlacementTest {
+  id          String    @id @default(cuid())
+  campaignId  String
+  campaign    Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  // pending -> sent (awaiting check) -> done | error
+  status      String    @default("pending")
+  // Unique tag embedded in the test Message-IDs so the checker can find them.
+  tag         String    @unique
+  // [{ sender, seed, folder: "inbox"|"spam"|"promotions"|"missing", gmailMsgId? }]
+  resultsJson Json      @default("[]")
+  error       String?
+  createdAt   DateTime  @default(now())
+  checkedAt   DateTime?
+
+  @@index([campaignId, createdAt])
+}
+
+model Message {
+  id             String           @id @default(cuid())
+  direction      MessageDirection @default(out)
+  status         MessageStatus    @default(planned)
+  variant        Variant          @default(A)
+  // Step 0 = initial; 1..n = follow-ups.
+  stepIndex      Int              @default(0)
+  // A manual reply sent from the app's inbox (not part of the sequence): it
+  // threads into the conversation but doesn't schedule follow-ups or reset the
+  // lead's status.
+  isManualReply  Boolean          @default(false)
+  // Per-message toggles for one-off sends. Campaign sends read these off the
+  // campaign instead; these defaults keep replies/one-offs person-to-person.
+  isHtml         Boolean          @default(false)
+  trackOpens     Boolean          @default(false)
+  trackClicks    Boolean          @default(false)
+  unsubHeader    Boolean          @default(false)
+  // null = append the default sig-block footer; "" = no footer; any other
+  // string = custom footer written by the user, appended verbatim.
+  footerOverride String?
+  subject        String
+  body           String
+  gmailThreadId  String?
+  gmailMsgId     String?
+  // RFC 5322 Message-ID header we set on the outbound email (e.g.
+  // "<abc@domain>"). Follow-ups reference it via In-Reply-To/References so the
+  // recipient's client threads the conversation correctly.
+  rfcMessageId   String?
+  scheduledAt    DateTime?
+  sentAt         DateTime?
+  openedAt       DateTime?
+  clickedAt      DateTime?
+  bulljobId      String? // BullMQ job id (so we can cancel follow-ups)
+  error          String?
+  createdAt      DateTime         @default(now())
+
+  leadId     String
+  lead       Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  campaignId String?
+  campaign   Campaign? @relation(fields: [campaignId], references: [id])
+  // Nullable: history survives when its sending inbox is deleted (SetNull).
+  accountId  String?
+  account    Account?  @relation(fields: [accountId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([leadId])
+  @@index([campaignId])
+  @@index([scheduledAt])
+  @@index([gmailThreadId])
+}
+
+model Suppression {
+  id        String            @id @default(cuid())
+  email     String            @unique
+  reason    SuppressionReason
+  detail    String?
+  createdAt DateTime          @default(now())
+
+  @@index([reason])
+}
+
+model SendLog {
+  id         String   @id @default(cuid())
+  date       DateTime // UTC day boundary (midnight)
+  coldSent   Int      @default(0)
+  warmupSent Int      @default(0)
+  bounces    Int      @default(0)
+  replies    Int      @default(0)
+  gmailErr   Int      @default(0)
+
+  accountId String
+  account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, date])
+  @@index([date])
+}
+
+model Event {
+  id        String   @id @default(cuid())
+  type      String
+  payload   Json     @default("{}")
+  createdAt DateTime @default(now())
+
+  @@index([type])
+  @@index([createdAt])
+}
+
+// Domain-level blocklist: any lead whose email domain matches is never mailed
+// (broader than exact-email Suppression). e.g. block a competitor's domain.
+model Blocklist {
+  id        String   @id @default(cuid())
+  domain    String   @unique // lowercased bare domain, e.g. "example.com"
+  note      String?
+  createdAt DateTime @default(now())
+}
+
+// Lightweight audit trail of state-changing actions (who/what/when). The
+// actor is recorded in `detail.actor` ("user" or "api").
+model AuditLog {
+  id        String   @id @default(cuid())
+  action    String // e.g. "campaign.pause", "lead.bulk_status"
+  target    String? // affected entity id(s), free-form
+  detail    Json     @default("{}")
+  createdAt DateTime @default(now())
+
+  @@index([action])
+  @@index([createdAt])
+}
+
+// Worker heartbeat + singleton app state.
+model WorkerHeartbeat {
+  id     String   @id @default("singleton")
+  beatAt DateTime @updatedAt
+}

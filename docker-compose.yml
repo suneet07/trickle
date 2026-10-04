@@ -1,0 +1,109 @@
+# Trickle — self-hosted with Docker Compose.
+#
+#   cp .env.example .env    # or: node scripts/init-env.mjs
+#   docker compose up -d
+#
+# The app is then on http://localhost:8080 (bound to localhost only).
+# For a public server with automatic HTTPS, set DOMAIN in .env and run:
+#
+#   docker compose --profile https up -d
+#
+# By default the image is built from this checkout. To use a published image
+# instead, set TRICKLE_IMAGE (e.g. ghcr.io/<owner>/trickle:latest) and run
+# `docker compose pull` before `up`.
+
+name: trickle
+
+x-app: &app
+  image: ${TRICKLE_IMAGE:-trickle:local}
+  build:
+    context: .
+  restart: unless-stopped
+  env_file: .env
+  environment:
+    # Containers always reach the bundled services by name; these override
+    # whatever .env says so a local-dev .env still works here.
+    DATABASE_URL: postgresql://trickle:${POSTGRES_PASSWORD:-trickle}@postgres:5432/trickle?schema=public
+    REDIS_URL: redis://redis:6379
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+
+services:
+  app:
+    <<: *app
+    command: ["api"]
+    ports:
+      # Localhost only. Put a reverse proxy in front (the https profile below,
+      # or your own) to expose it publicly.
+      - "${BIND_ADDRESS:-127.0.0.1}:${HOST_PORT:-8080}:8080"
+
+  worker:
+    <<: *app
+    command: ["worker"]
+    environment:
+      DATABASE_URL: postgresql://trickle:${POSTGRES_PASSWORD:-trickle}@postgres:5432/trickle?schema=public
+      REDIS_URL: redis://redis:6379
+      TRICKLE_ROLE: worker
+    depends_on:
+      app:
+        # The app container applies migrations on start; wait for it.
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: trickle
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-trickle}
+      POSTGRES_DB: trickle
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trickle"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # AOF persistence so delayed send jobs survive a restart. A lost queue is
+    # also recovered by the hourly reconcile job, but this avoids the gap.
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Optional: automatic HTTPS via Let's Encrypt. Needs DOMAIN in .env and
+  # ports 80/443 reachable from the internet.
+  caddy:
+    image: caddy:2-alpine
+    profiles: ["https"]
+    restart: unless-stopped
+    depends_on:
+      - app
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddydata:/data
+      - caddyconfig:/config
+
+volumes:
+  pgdata:
+  redisdata:
+  caddydata:
+  caddyconfig:

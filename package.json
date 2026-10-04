@@ -1,0 +1,32 @@
+{
+  "name": "trickle",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Self-hosted cold email that lands in the inbox: human-paced drip sending across your own Gmail inboxes.",
+  "license": "MIT",
+  "scripts": {
+    "setup": "node scripts/init-env.mjs",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "dev:api": "cross-env NODE_OPTIONS=--conditions=development dotenv -e .env -- pnpm --filter @trickle/api dev",
+    "dev:worker": "cross-env NODE_OPTIONS=--conditions=development dotenv -e .env -- pnpm --filter @trickle/worker dev",
+    "dev:web": "pnpm --filter @trickle/web dev",
+    "build:web": "pnpm --filter @trickle/web build",
+    "db:generate": "pnpm --filter @trickle/db generate",
+    "db:migrate": "dotenv -e .env -- pnpm --filter @trickle/db migrate",
+    "db:deploy": "dotenv -e .env -- pnpm --filter @trickle/db deploy",
+    "db:studio": "dotenv -e .env -- pnpm --filter @trickle/db studio"
+  },
+  "devDependencies": {
+    "cross-env": "^7.0.3",
+    "dotenv-cli": "^7.4.2",
+    "typescript": "^5.5.4",
+    "tsx": "^4.16.2",
+    "vitest": "^2.1.9"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "packageManager": "pnpm@9.6.0"
+}

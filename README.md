@@ -59,7 +59,7 @@ It runs on your own server or laptop as a Docker Compose stack. Your leads, inbo
 You need Docker (with Compose) and a Google Cloud OAuth client. The OAuth client takes about five minutes; see [docs/google-setup.md](docs/google-setup.md).
 
 ```bash
-git clone https://github.com/<you>/trickle.git
+git clone https://github.com/suneet07/trickle.git
 cd trickle
 
 # Create .env with fresh random secrets and an admin password (printed once).
